@@ -1,5 +1,5 @@
 #pragma once
-enum class FanMode { Low, High, Off };
+enum class FanMode {On, Off };
 struct IFan {
   virtual ~IFan() = default;
   virtual void set(FanMode m) = 0;

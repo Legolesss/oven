@@ -21,30 +21,30 @@ void StateMachine::enter(State s){
       break;
 
     case State::Warming:
-      fan_.set(FanMode::High);     // spec: Warming uses max fan
+      fan_.set(FanMode::On);     // spec: Warming uses max fan
       // heater toggled in update_warming()
       break;
 
     case State::Ready:
-      fan_.set(FanMode::Low);      // spec: Ready low fan to reduce loss
+      fan_.set(FanMode::On);      // spec: Ready low fan to reduce loss
       part_detected_ = false;      // look for a new spike
       part_baseline_c_ = last_part_c_; // seed baseline if we have a value
       break;
 
     case State::Curing:
-      fan_.set(FanMode::Low);      // spec: Curing low fan
+      fan_.set(FanMode::On);      // spec: Curing low fan
       // heater toggled in update_curing()
       break;
 
     case State::Shutdown:
       heater_.set(false);          // safe-off
-      fan_.set(FanMode::High);     // cool down aggressively
+      fan_.set(FanMode::On);     // cool down aggressively
       cure_timer_running_ = false; // stop any dwell
       break;
 
     case State::Fault:
       heater_.set(false);          // kill heat
-      fan_.set(FanMode::High);     // evacuate heat
+      fan_.set(FanMode::On);     // evacuate heat
       cure_timer_running_ = false; // stop timers
       break;
   }
