@@ -15,36 +15,36 @@ void StateMachine::enter(State s){
   switch(s){
     case State::Idle:
       heater_.set(false);          // spec: no heat in Idle
-      fan_.set(FanMode::Off);      // spec: no fan in Idle
+      fan_.set(false);      // spec: no fan in Idle
       cure_timer_running_ = false; // no timing
       part_detected_ = false;      // reset detection
       break;
 
     case State::Warming:
-      fan_.set(FanMode::On);     // spec: Warming uses max fan
+      fan_.set(true);     // spec: Warming uses max fan
       // heater toggled in update_warming()
       break;
 
     case State::Ready:
-      fan_.set(FanMode::On);      // spec: Ready low fan to reduce loss
+      fan_.set(true);      // spec: Ready low fan to reduce loss
       part_detected_ = false;      // look for a new spike
       part_baseline_c_ = last_part_c_; // seed baseline if we have a value
       break;
 
     case State::Curing:
-      fan_.set(FanMode::On);      // spec: Curing low fan
+      fan_.set(true);      // spec: Curing low fan
       // heater toggled in update_curing()
       break;
 
     case State::Shutdown:
       heater_.set(false);          // safe-off
-      fan_.set(FanMode::On);     // cool down aggressively
+      fan_.set(false);     // cool down aggressively
       cure_timer_running_ = false; // stop any dwell
       break;
 
     case State::Fault:
       heater_.set(false);          // kill heat
-      fan_.set(FanMode::On);     // evacuate heat
+      fan_.set(true);     // evacuate heat
       cure_timer_running_ = false; // stop timers
       break;
   }
@@ -105,7 +105,8 @@ void StateMachine::update_warming(){
   // Bang-bang with hysteresis on AIR temperature
   if(last_air_c_ < P_.air_target_c - P_.air_hysteresis_c) heater_.set(true);
   if(last_air_c_ > P_.air_target_c + P_.air_hysteresis_c) heater_.set(false);
-
+  if(door_open_) fan_.set(false);
+  if(!door_open_) fan_.set(true);
   // Transition when oven air is hot enough
   if(last_air_c_ >= P_.air_target_c){
     enter(State::Ready);
@@ -117,7 +118,8 @@ void StateMachine::update_ready(std::chrono::steady_clock::time_point now){
   // Keep AIR around target with hysteresis
   if(last_air_c_ < P_.air_target_c - P_.air_hysteresis_c) heater_.set(true);
   if(last_air_c_ > P_.air_target_c + P_.air_hysteresis_c) heater_.set(false);
-
+  if(door_open_) fan_.set(false);
+  if(!door_open_) fan_.set(true);
   // Update/drop detection is called in tick(); here we just check conditions:
   // door open, detection latched, and PART (i.e., IR after detection) >= target.
   double pc = part_c(); // will be NaN until detected
@@ -136,7 +138,8 @@ void StateMachine::update_curing(std::chrono::steady_clock::time_point now){
   // Maintain PART around target with hysteresis
   if(last_part_c_ < P_.part_target_c - P_.part_hysteresis_c) heater_.set(true);
   if(last_part_c_ > P_.part_target_c + P_.part_hysteresis_c) heater_.set(false);
-
+  if(door_open_) fan_.set(false);
+  if(!door_open_) fan_.set(true);
   // Done when timer elapses
   if(cure_timer_running_ && now >= cure_ends_){
     enter(State::Idle);
@@ -146,6 +149,7 @@ void StateMachine::update_curing(std::chrono::steady_clock::time_point now){
 // SHUTDOWN: safe-off; (optionally auto-return to Idle on cooldown in future)
 void StateMachine::update_shutdown(){
   heater_.set(false);
+  fan_.set(false);
   // Optional later: if last_air_c_ < safe threshold → enter(State::Idle);
 }
 

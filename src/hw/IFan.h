@@ -1,7 +1,6 @@
 #pragma once
-enum class FanMode {On, Off };
 struct IFan {
   virtual ~IFan() = default;
-  virtual void set(FanMode m) = 0;
-  virtual FanMode get() const = 0;
+  virtual void set(bool on) = 0;
+  virtual bool get() const = 0;
 };

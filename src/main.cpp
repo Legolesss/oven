@@ -5,13 +5,17 @@
 #include <termios.h> // tcgetattr/tcsetattr for raw input
 #include <fcntl.h>   // fcntl for O_NONBLOCK
 #include <cmath> // for std::isnan in the status line
+#include <memory>
 
 #include "core/StateMachine.h"
 #include "core/Events.h"
 
-#include "hw/impl/MockHeater.h"
-#include "hw/impl/MockFan.h"
+// #include "hw/impl/MockHeater.h"
+// #include "hw/impl/MockFan.h"
 #include "hw/impl/MockTemp.h"
+#include "hw/impl/GpioHeater.h"
+#include "hw/impl/GpioFan.h"
+
 
 // Small RAII helper to put the terminal into raw, noncanonical, no-echo mode
 // so we can read single keypresses without needing Enter.
@@ -61,11 +65,26 @@ int main(){
   // --- Enable raw keyboard input so single keypresses work without Enter ---
   StdinRaw kb; // RAII object; restores terminal at program exit
 
-  // --- Wire up mocks (swap for Pi drivers later) ---
-  MockHeater heater;
-  MockFan    fan;
+  // int rc = gpioInitialise();
+  // std::cerr << "gpioInitialise() rc = " << rc << "\n";
+  //  rc >= 0  => OK
+  //  rc < 0   => FAILED (permissions or environment)
+
+  // Gpio::init();
+
+  // Pick your actual pins:
+// From gpiofind
+  constexpr const char* CHIP = "gpiochip0";  //  gpiofind result
+  constexpr unsigned GPIO_HEATER = 5;
+  constexpr unsigned GPIO_FAN    = 6;
+  constexpr bool ACTIVE_HIGH = false;
+
+  GpioHeater heater(CHIP, GPIO_HEATER, ACTIVE_HIGH);
+  GpioFan    fan   (CHIP, GPIO_FAN,    ACTIVE_HIGH);
+ //MOCKS
   MockTemp   air;
   MockTemp   part;
+
   air.inject(25.0);
   part.inject(25.0);
 
@@ -132,34 +151,11 @@ while (kb.try_get_char(c)) {
 // --- Tick state machine ---
 sm.tick(std::chrono::steady_clock::now());
 
-// *** IMPORTANT: no auto-physics now ***
-// Do NOT modify air/part unless user presses keys.
-
-    // --- Advance state machine ---
-    sm.tick(std::chrono::steady_clock::now());
-
-    // // --- Simple laptop physics model (unchanged) ---
-    // {
-    //   const bool on = heater.get();
-
-    //   double air_next  = sm.air_c()  + (on ? +0.8 : -0.2);
-    //   if(air_next < 0) air_next = 0;
-    //   air.inject(air_next);
-
-    //   double part_next = sm.part_c() + ((air_next - sm.part_c()) * (on ? 0.15 : 0.08));
-    //   if(part_next < 0) part_next = 0;
-    //   part.inject(part_next);
-    // }
-
     // --- Status line at ~2 Hz (overwrite same line) ---
     // ~2 Hz status line
     auto now = std::chrono::steady_clock::now();
     if(now - lastPrint > std::chrono::milliseconds(500)){
       lastPrint = now;
-
-      const char* fanTxt =
-        (fan.get()==FanMode::High ? "HIGH" :
-        fan.get()==FanMode::Low  ? "LOW " : "OFF ");
 
       std::cout << "\x1b[2K\r"
         << "State=" << to_str(sm.state())
@@ -172,7 +168,7 @@ sm.tick(std::chrono::steady_clock::now());
 
       std::cout
         << "  Heater=" << (heater.get() ? "ON " : "OFF")
-        << "  Fan=" << fanTxt
+        << "  Fan=" << (fan.get() ? "ON " : "OFF")
         << "  Door=" << (doorOpen ? "OPEN " : "CLOSED")
         << "  Detected=" << (sm.part_detected() ? "YES" : "no ")
         << "  DwellLeft=" << sm.seconds_left() << "s"
@@ -185,5 +181,7 @@ sm.tick(std::chrono::steady_clock::now());
   }
 
   std::cout << "\nBye.\n";
+  sm.command_stop();
+  // Gpio::shutdown();
   return 0;
 }
