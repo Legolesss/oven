@@ -13,8 +13,9 @@
 // #include "hw/impl/MockHeater.h"
 // #include "hw/impl/MockFan.h"
 #include "hw/impl/MockTemp.h"
-#include "hw/impl/GpioHeater.h"
+#include "hw/impl/GpioHeater.h" // these will be moved to simple relay controls later
 #include "hw/impl/GpioFan.h"
+#include "hw/impl/ThkaRs485Temp.h" // handles all reading and writing to the THKA controller
 
 
 // Small RAII helper to put the terminal into raw, noncanonical, no-echo mode
@@ -65,12 +66,30 @@ int main(){
   // --- Enable raw keyboard input so single keypresses work without Enter ---
   StdinRaw kb; // RAII object; restores terminal at program exit
 
-  // int rc = gpioInitialise();
-  // std::cerr << "gpioInitialise() rc = " << rc << "\n";
-  //  rc >= 0  => OK
-  //  rc < 0   => FAILED (permissions or environment)
+//---------------------
+  // Setup Modbus and register map for all six channels
+  ThkaConfig cfg;
+  cfg.channels = {
+    {1, 768, 0, 0.1}, 
+    // {2, 769, 1, 0.1},
+    // {3, 773, 2, 0.1}, 
+    // {4, 777, 3, 0.1},
+    // {5, 781, 4, 0.1}, 
+    {6, 773, 5, 0.1}
+  };
 
-  // Gpio::init();
+  // Create the sensor object (opens the RS485 connection)
+  ThkaRs485Temp sensor(cfg);
+
+
+
+  // Print each reading
+  // for (size_t i = 0; i < temps.size(); ++i)
+  //   std::cout << "CH" << (i + 1) << ": " << temps[i] << " °C\n";
+
+  // // Example: write a setpoint of 180°C to channel 5 (e.g. 4–20 mA input)
+  // sensor.write_setpoint_celsius(5, 180.0);
+//---------------------
 
   // Pick your actual pins:
 // From gpiofind
@@ -157,6 +176,9 @@ sm.tick(std::chrono::steady_clock::now());
     if(now - lastPrint > std::chrono::milliseconds(500)){
       lastPrint = now;
 
+      // Read all six channels at once
+      auto temps = sensor.read_all_channels_celsius();
+
       std::cout << "\x1b[2K\r"
         << "State=" << to_str(sm.state())
         << "  AIR="  << sm.air_c()  << "C"
@@ -173,6 +195,9 @@ sm.tick(std::chrono::steady_clock::now());
         << "  Detected=" << (sm.part_detected() ? "YES" : "no ")
         << "  DwellLeft=" << sm.seconds_left() << "s"
         << "  Fault=" << (injectFault ? "SET " : "clear")
+        << "  Oven Air Temp (CH1): " << temps[0] << " C"  // display the temperature read from the THKA controller
+        << "  IR Sensor Temp (CH6): " << temps[1] << " C"  
+
         << std::flush;
     }
 
