@@ -52,5 +52,6 @@ public:
 
 private:
   struct Impl;       // Forward declaration of the internal implementation struct
-  Impl* p_;          // Pointer to actual implementation (PImpl pattern, hides libmodbus details)
+  Impl* p_;          // Pointer to actual implementation (PImpl pattern, hides libmodbus details)  
+
 };

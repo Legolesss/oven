@@ -102,7 +102,7 @@ ThkaRs485Temp::~ThkaRs485Temp() {
 double ThkaRs485Temp::read_celsius() {
   if (p_->cfg.channels.empty())
     return std::nan("");  // No channels configured → invalid reading
-  return read_channel_celsius(p_->cfg.channels.front().id);  // Read the first channel (COULD BE PROBLEMATIC IF USING MORE THAN 1 CHANNEL LOOK HERE !!!!!!!!!!!!!!!!!!!!!!)
+  return read_channel_celsius(p_->cfg.channels.front().id);  // Read the first channel
 }
 
 // -----------------------------------------------------------------------------
@@ -133,12 +133,28 @@ bool ThkaRs485Temp::write_setpoint_celsius(int ch, double value) {
 // Reads all channels sequentially and returns them in a vector<double>
 // -----------------------------------------------------------------------------
 std::vector<double> ThkaRs485Temp::read_all_channels_celsius() {
-  std::vector<double> out;                       // Container for results
-  out.reserve(p_->cfg.channels.size());          // Reserve space to avoid reallocations
+  static std::vector<double> last_valid;                   // store last good values
+  const auto& channels = p_->cfg.channels;
 
-  // Loop over each configured channel and read its measured value
-  for (const auto& c : p_->cfg.channels)
-    out.push_back(p_->read_reg(c.reg_meas, c.scale));
+  if (last_valid.size() != channels.size())
+      last_valid.assign(channels.size(), std::nan(""));
 
-  return out;                                   // Return all readings
+  std::vector<double> out;   // Create a new vector 'out' that will store the most recent temperature readings.
+  out.reserve(channels.size());
+
+  for (size_t i = 0; i < channels.size(); ++i) {   // Loop over each configured channel one by one
+    double val = p_->read_reg(channels[i].reg_meas, channels[i].scale);
+
+    if (std::isnan(val)) {
+      // fallback to previous valid value
+      val = last_valid[i];
+    } else {
+      // store new valid reading
+      last_valid[i] = val;
+    }
+
+    out.push_back(val);
+  }
+
+  return out;  // Return all readings
 }
