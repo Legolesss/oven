@@ -20,6 +20,15 @@ public:
   void command_stop();         // any  -> Shutdown
   void command_clearFault();   // Fault -> Idle (if safe)
 
+  // Manual State Commands
+  void command_enterIdle(); 
+  void command_enterWarming();
+  void command_enterReady();   
+  void command_enterCuring();
+  void command_enterShutdown();
+  void command_enterFault();   
+
+
   // Inputs (wired later; keyboard in laptop tests)
   void setFault(bool f)       { fault_ = f; }
   void setDoorOpen(bool open) { door_open_ = open; }

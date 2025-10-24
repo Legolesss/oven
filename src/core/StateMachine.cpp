@@ -61,6 +61,13 @@ void StateMachine::command_clearFault(){
   if(st_ == State::Fault && !fault_) enter(State::Idle);
 }
 
+  void StateMachine::command_enterIdle()     { enter(State::Idle); }
+  void StateMachine::command_enterWarming()  { enter(State::Warming); }
+  void StateMachine::command_enterReady()    { enter(State::Ready); }
+  void StateMachine::command_enterCuring()   { enter(State::Curing); }
+  void StateMachine::command_enterShutdown() { enter(State::Shutdown); }
+  void StateMachine::command_enterFault()    { enter(State::Fault); }
+
 // Remaining dwell seconds for UI
 int StateMachine::seconds_left() const {
   if(!cure_timer_running_) return 0;

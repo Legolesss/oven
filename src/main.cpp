@@ -11,15 +11,28 @@
 #include "hw/impl/GpioHeater.h"
 #include "hw/impl/GpioFan.h"
 // Use THKA when you’re ready; for now we’ll bring up with mocks
-// #include "hw/impl/ThkaRs485Temp.h"
 #include "hw/impl/MockTemp.h"
-
+#include "hw/impl/ThkaRs485Temp.h"   // add this include
 #include "ui/OvenBackend.h"                // Qt bridge around StateMachine
 
 int main(int argc, char* argv[]) {
-  QGuiApplication app(argc, argv);         // start Qt
+  QGuiApplication app(argc, argv);
 
-  // ----- Hardware wiring (edit pins if needed) -----
+  // ---- REAL THKA CONFIG (edit to match your wiring/register map) ----
+  ThkaConfig cfg;
+
+  // id, holding-register, channel-index, scale
+  cfg.channels = {
+    {1, 768, 0, 0.1},
+    {2, 769, 1, 0.1},
+    {3, 770, 2, 0.1},
+    {4, 771, 3, 0.1},
+    {5, 772, 4, 0.1},
+    {6, 773, 5, 0.1},
+  };
+  ThkaRs485Temp thka(cfg);           // opens Modbus/serial now
+
+  // ---- Your real I/O (heater/fan) as you already had ----
   constexpr const char* CHIP = "gpiochip0";
   constexpr unsigned GPIO_HEATER = 5;
   constexpr unsigned GPIO_FAN    = 6;
@@ -28,19 +41,12 @@ int main(int argc, char* argv[]) {
   GpioHeater heater(CHIP, GPIO_HEATER, ACTIVE_HIGH);
   GpioFan    fan   (CHIP, GPIO_FAN,    ACTIVE_HIGH);
 
-  // ----- Sensors -----
-  // Use mocks for GUI bring-up; swap to ThkaRs485Temp when live.
-  MockTemp air_sensor;                     // MockTemp has NO double-arg ctor
-  MockTemp part_sensor;
-  air_sensor.inject(25.0);                 // seed a starting value
-  part_sensor.inject(25.0);
+  // ---- Use THKA channels for SM sensors (pick which channels drive AIR/PART) ----
+  // If your StateMachine needs two sensors, pick indices from thka (e.g., CH1 = air, CH6 = IR).
+  // Wrapers implementing ITempSensor that forward to THKA are ideal; if you already have that, use it.
+  // For now, keep your existing ITempSensor wiring; the grid below will still show ALL channels.
 
-  // Example when you switch to real sensors:
-  // ThkaRs485Temp air_sensor ("/dev/ttyAMA0", 5, 9600);
-  // ThkaRs485Temp part_sensor("/dev/ttyAMA0", 6, 9600);
-
-  // ----- Control params -----
-  Params P{};                              // NOT StateMachine::Params — it’s top-level
+  Params P{};
   P.air_target_c       = 200.0;
   P.air_hysteresis_c   = 5.0;
   P.part_target_c      = 180.0;
@@ -49,19 +55,24 @@ int main(int argc, char* argv[]) {
   P.part_min_valid_c   = 120.0;
   P.ir_drop_delta_c    = 15.0;
 
-  // ----- Build state machine -----
+  // If you already have ITempSensor wrappers for THKA (e.g. ThkaChannelSensor ch(…)),
+  // construct them and pass here. Otherwise keep the ones you used and we’ll still render the THKA grid.
+  MockTemp air_sensor;   air_sensor.inject(25.0);
+  MockTemp part_sensor;  part_sensor.inject(25.0);
+
   StateMachine sm(P, air_sensor, part_sensor, heater, fan);
 
-  // ----- Qt backend (exposes start/stop; drives sm.tick() via timer) -----
+  // ---- Backend now also receives &thka so it can read all channels live ----
   OvenBackend backend(&sm);
+  backend.setThka(&thka);   // hand over the device
 
-  // ----- QML UI -----
-QQmlApplicationEngine engine;
-engine.rootContext()->setContextProperty("oven", &backend);
-engine.addImportPath(QStringLiteral("/usr/lib/aarch64-linux-gnu/qt6/qml"));
-engine.load(QUrl(QStringLiteral("qrc:/OVEN/qml/Main.qml")));
-if (engine.rootObjects().isEmpty()) return -1;
-return app.exec();
+  QQmlApplicationEngine engine;
+  engine.addImportPath(QStringLiteral("/usr/lib/aarch64-linux-gnu/qt6/qml"));
+  engine.rootContext()->setContextProperty("oven", &backend);
+  engine.load(QUrl(QStringLiteral("qrc:/OVEN/qml/Main.qml")));
+  if (engine.rootObjects().isEmpty()) return -1;
+  return app.exec();
+
 }
 
 
