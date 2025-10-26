@@ -1,7 +1,7 @@
 #include <QGuiApplication>                 // Qt app runtime
 #include <QQmlApplicationEngine>           // loads QML
 #include <QQmlContext>                     // injects C++ objects into QML
-
+#include <iostream>
 #include "core/StateMachine.h"             // your state machine + Params
 #include "hw/IHeater.h"
 #include "hw/IFan.h"
@@ -22,14 +22,14 @@ int main(int argc, char* argv[]) {
   ThkaConfig cfg;
 
   // id, holding-register, channel-index, scale
-  cfg.channels = {
-    {1, 768, 0, 0.1},
-    {2, 769, 1, 0.1},
-    {3, 770, 2, 0.1},
-    {4, 771, 3, 0.1},
-    {5, 772, 4, 0.1},
-    {6, 773, 5, 0.1},
-  };
+cfg.channels = {
+  {1, 768, 0, 0.1},  // CH1: Read temp from 768, Write setpoint to 0
+  {2, 769, 1, 0.1},  // CH2: Read temp from 769, Write setpoint to 1
+  {3, 770, 2, 0.1},  // CH3: Read temp from 770, Write setpoint to 2
+  {4, 771, 3, 0.1},  // CH4: Read temp from 771, Write setpoint to 3
+  {5, 772, 4, 0.1},  // CH5: Read temp from 772, Write setpoint to 4
+  {6, 773, 5, 0.1},  // CH6: Read temp from 773, Write setpoint to 5
+};
   ThkaRs485Temp thka(cfg);           // opens Modbus/serial now
 
   // ---- Your real I/O (heater/fan) as you already had ----
@@ -71,6 +71,54 @@ int main(int argc, char* argv[]) {
   engine.rootContext()->setContextProperty("oven", &backend);
   engine.load(QUrl(QStringLiteral("qrc:/OVEN/qml/Main.qml")));
   if (engine.rootObjects().isEmpty()) return -1;
+  
+  
+  
+  
+  
+  std::cout << "\n=== TESTING WRITE REGISTERS ===" << std::endl;
+std::cout << "Your READ registers are working (768-773)" << std::endl;
+std::cout << "Now testing potential WRITE registers...\n" << std::endl;
+
+// Common patterns for THKA controllers:
+std::vector<uint16_t> test_registers = {
+    1000,   // Pattern 1: Sequential (768=read, 769=write)
+    2048,   // Pattern 2: After all read registers
+    8192,   // Pattern 3: Separate block at 800
+    1000,  // Pattern 4: Separate block at 1000
+    1024,  // Pattern 5: Common offset
+    40769  // Pattern 6: Holding vs input register offset
+};
+
+for (uint16_t test_reg : test_registers) {
+    std::cout << "Testing register " << test_reg << "..." << std::endl;
+    
+    // Try to write 100.0°C (a safe test value)
+    ThkaConfig test_cfg = cfg;
+    test_cfg.channels[0].reg_sv = test_reg;  // Override just CH1's SV register
+    
+    ThkaRs485Temp test_sensor(test_cfg);
+    bool success = test_sensor.write_setpoint_celsius(1, 100.0);
+    
+    if (success) {
+        std::cout << "  ✓ Write to " << test_reg << " SUCCEEDED!" << std::endl;
+        
+        // Try to read it back
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // Note: We can't easily read SV registers back without knowing if they're holding registers
+        
+    } else {
+        std::cout << "  ✗ Write to " << test_reg << " failed" << std::endl;
+    }
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+}
+
+std::cout << "\n=== END TEST ===\n" << std::endl;
+std::cout << "Check your THKA display - did any setpoint change to 100°C?" << std::endl;
+std::cout << "Press Enter to continue to GUI..." << std::endl;
+std::cin.get();
+
   return app.exec();
 
 }

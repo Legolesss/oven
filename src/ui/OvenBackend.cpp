@@ -2,6 +2,7 @@
 #include "ui/ThkaPoller.h"
 #include "hw/impl/ThkaRs485Temp.h"
 #include <QDebug>
+#include <QtMath> // for qFuzzyCompare when caching manual setpoints
 #include <chrono>
 
 using Clock = std::chrono::steady_clock;
@@ -9,6 +10,9 @@ using Clock = std::chrono::steady_clock;
 OvenBackend::OvenBackend(StateMachine* sm, QObject* parent)
   : QObject(parent), sm_(sm) {
     if (!sm_) qWarning() << "OvenBackend constructed with null StateMachine*.";
+
+    // Advertise the default manual-setpoint status so the UI has meaningful text before any connection happens.
+    emit manualSetpointStatusChanged();
 
     tick_.setInterval(50);
     tick_.setTimerType(Qt::PreciseTimer);
@@ -22,8 +26,12 @@ void OvenBackend::setThka(ThkaRs485Temp* thka) {
     thka_ = thka;
     if (!thka_) return;
 
+    // Let the user know the THKA interface is ready for manual writes now that the pointer is valid.
+    setManualSetpointStatus("Connected to THKA controller – ready to send setpoints");
+
     poller_ = new ThkaPoller(thka_);
     poller_->moveToThread(&thkaThread_);
+
 
     connect(&thkaThread_, &QThread::finished, poller_, &QObject::deleteLater);
     connect(&thkaThread_, &QThread::started,  poller_, &ThkaPoller::start);
@@ -42,6 +50,27 @@ void OvenBackend::onThkaUpdate(const QVariantList& temps) {
 void OvenBackend::onTick() {
     if (sm_) sm_->tick(Clock::now());
 }
+void OvenBackend::sendManualSetpoint(double value) {
+    // Remember the raw selection so the UI can stay in sync regardless of write outcome.
+    setManualSetpoint(value);
+
+    // Block sending if we do not yet have an attached THKA driver.
+    if (!thka_) {
+        setManualSetpointStatus("Cannot send – THKA controller is not connected");
+        return;
+    }
+
+    // Issue the Modbus write; update the status string based on the return value to aid troubleshooting.
+    if (thka_->write_setpoint_celsius(manualSetpointChannel_, value)) {
+        setManualSetpointStatus(QStringLiteral("Sent %1 °C to channel %2")
+                                    .arg(value, 0, 'f', 1)
+                                    .arg(manualSetpointChannel_));
+    } else {
+        setManualSetpointStatus(QStringLiteral("Write failed – confirm channel %1 setpoint register is configured")
+                                    .arg(manualSetpointChannel_));
+    }
+}
+
 
 // your enterIdle/enterWarming/... methods and setStatus() stay as they are
 void OvenBackend::enterIdle() {
@@ -82,5 +111,22 @@ void OvenBackend::setStatus(const QString& s) {
   status_ = s;                                            // store new text
   emit statusChanged();                                   // tell QML bindings to refresh
 }
+
+void OvenBackend::setManualSetpoint(double value) {
+    // Skip signal emission when the cached value already matches to avoid redundant UI updates.
+    if (qFuzzyCompare(manualSetpoint_, value))
+        return;
+    manualSetpoint_ = value;                               // Cache the user's latest selection
+    emit manualSetpointChanged();                          // Notify QML bindings
+}
+
+void OvenBackend::setManualSetpointStatus(const QString& status) {
+    // Avoid unnecessary signals if the text has not changed.
+    if (manualSetpointStatus_ == status)
+        return;
+    manualSetpointStatus_ = status;                        // Remember the new status message
+    emit manualSetpointStatusChanged();                    // Allow QML to refresh its label
+}
+
 
 

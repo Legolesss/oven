@@ -1,8 +1,9 @@
 #include "ThkaRs485Temp.h"      // Include this class's header
-#include <modbus.h>             // libmodbus C library (handles RS485/RTU protocol)
+#include <modbus/modbus.h>             // libmodbus C library (handles RS485/RTU protocol)
 #include <cmath>                // For std::nan() to represent invalid reads
 #include <stdexcept>            // For throwing exceptions on fatal errors
 #include <cerrno>               // For errno (error codes from system calls)
+#include <iostream>
 
 // -----------------------------------------------------------------------------
 // Internal "Impl" struct hides low-level libmodbus details from the main header.
@@ -121,12 +122,21 @@ double ThkaRs485Temp::read_channel_celsius(int ch) {
 // Writes a setpoint temperature (°C) to a specific channel
 // -----------------------------------------------------------------------------
 bool ThkaRs485Temp::write_setpoint_celsius(int ch, double value) {
-  // Find matching channel in configuration
   for (const auto& c : p_->cfg.channels) {
-    if (c.id == ch)
-      return p_->write_reg(c.reg_sv, value, c.scale);  // Write value
+    if (c.id == ch) {
+      uint16_t raw = static_cast<uint16_t>(value / c.scale);
+      std::cout << "Writing to CH" << ch 
+                << " reg=" << c.reg_sv 
+                << " value=" << raw << std::endl;
+      bool result = p_->write_reg(c.reg_sv, value, c.scale);
+      if (!result) {
+        std::cerr << "Write failed! Check register " << c.reg_sv << std::endl;
+      }
+      return result;
+    }
   }
-  return false;  // Channel not found → failed
+  std::cerr << "Channel " << ch << " not found in config!" << std::endl;
+  return false;
 }
 
 // -----------------------------------------------------------------------------

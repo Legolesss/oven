@@ -1,0 +1,32 @@
+# Simple CMakeLists.txt for the register scanner
+# Save this as CMakeLists_scanner.txt in your ~/oven directory
+
+cmake_minimum_required(VERSION 3.16)
+project(thka_scanner LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find libmodbus
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBMODBUS REQUIRED libmodbus)
+
+# Create scanner executable
+add_executable(scan_registers
+    scan_registers.cpp
+    src/hw/impl/ThkaRs485Temp.cpp
+)
+
+# Include directories
+target_include_directories(scan_registers PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${LIBMODBUS_INCLUDE_DIRS}
+)
+
+# Link libraries
+target_link_libraries(scan_registers PRIVATE
+    ${LIBMODBUS_LIBRARIES}
+)
+
+# Compiler warnings
+target_compile_options(scan_registers PRIVATE -Wall -Wextra)

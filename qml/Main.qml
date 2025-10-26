@@ -69,5 +69,54 @@ ApplicationWindow {
             Button { text: "Shutdown"; onClicked: oven.enterShutdown() }
             Button { text: "Fault";    onClicked: oven.enterFault() }
         }
-    }
+
+        
+        // ---- Manual temperature entry ----
+        GroupBox {
+            title: "Manual Setpoint"
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                anchors.margins: 12
+                spacing: 10
+
+                Label {
+                    // Explain how to use the scroll-friendly control below.
+                    text: "Use the scroll arrows or mouse wheel to pick a target temperature, then press Send."
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: 18
+                    color: "black"
+                }
+
+                RowLayout {
+                    spacing: 12
+
+                    // Scrollable spin box for selecting the desired temperature in °C.
+                    SpinBox {
+                        id: setpointSpinner
+                        from: 0
+                        to: 400
+                        value: oven.manualSetpoint
+                        stepSize: 1
+                        editable: true
+                        Layout.preferredWidth: 180
+                    }
+
+                    // Button that forwards the selected temperature to the THKA controller via the backend.
+                    Button {
+                        text: "Send Setpoint"
+                        onClicked: oven.sendManualSetpoint(setpointSpinner.value)
+                    }
+                }
+
+                // Status readout that reflects success/failure of the last manual transmission.
+                Label {
+                    text: oven.manualSetpointStatus
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: 16
+                    color: "#444"
+                }
+            }
+        }
+    }   
 }
