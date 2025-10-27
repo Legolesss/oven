@@ -39,7 +39,7 @@ int main() {
     cfg.channels = {{1, 768, 0, 0.1}};  // Read from 768, write to 0
     try {
         ThkaRs485Temp sensor(cfg);
-        bool success = sensor.write_setpoint_celsius(1, 155.5);
+        bool success = sensor.write_setpoint_celsius(1, 100);
         
         if (success) {
             std::cout << "Write reported SUCCESS!" << std::endl;

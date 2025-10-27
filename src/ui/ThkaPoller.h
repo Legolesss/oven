@@ -9,10 +9,6 @@ class ThkaPoller : public QObject {
     Q_OBJECT
 public:
     explicit ThkaPoller(ThkaRs485Temp* thka, QObject* parent = nullptr);
-    std::vector<uint16_t> read_input_registers(uint16_t start_reg, int count);
-    std::vector<uint16_t> read_holding_registers(uint16_t start_reg, int count);
-    bool write_register_raw(uint16_t reg, uint16_t value);
-
 
 public slots:
     void start();  // will be called after moveToThread()

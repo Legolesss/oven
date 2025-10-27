@@ -51,26 +51,32 @@ void OvenBackend::onTick() {
     if (sm_) sm_->tick(Clock::now());
 }
 void OvenBackend::sendManualSetpoint(double value) {
-    // Remember the raw selection so the UI can stay in sync regardless of write outcome.
+    // Cache the user's selection
     setManualSetpoint(value);
 
-    // Block sending if we do not yet have an attached THKA driver.
+    // Verify THKA is connected
     if (!thka_) {
-        setManualSetpointStatus("Cannot send – THKA controller is not connected");
+        setManualSetpointStatus("❌ Cannot send - THKA controller not initialized");
+        qWarning() << "sendManualSetpoint called but thka_ is null!";
         return;
     }
 
-    // Issue the Modbus write; update the status string based on the return value to aid troubleshooting.
-    if (thka_->write_setpoint_celsius(manualSetpointChannel_, value)) {
-        setManualSetpointStatus(QStringLiteral("Sent %1 °C to channel %2")
+    // Send the write command
+    qDebug() << "Sending setpoint" << value << "°C to CH" << manualSetpointChannel_;
+    
+    bool success = thka_->write_setpoint_celsius(manualSetpointChannel_, value);
+    
+    if (success) {
+        setManualSetpointStatus(QString("✓ Sent %1°C to CH%2 - Check THKA display")
                                     .arg(value, 0, 'f', 1)
                                     .arg(manualSetpointChannel_));
+        qDebug() << "Setpoint write reported success";
     } else {
-        setManualSetpointStatus(QStringLiteral("Write failed – confirm channel %1 setpoint register is configured")
+        setManualSetpointStatus(QString("❌ Write failed to CH%1")
                                     .arg(manualSetpointChannel_));
+        qWarning() << "Setpoint write reported failure";
     }
 }
-
 
 // your enterIdle/enterWarming/... methods and setStatus() stay as they are
 void OvenBackend::enterIdle() {
