@@ -2,7 +2,7 @@
 #include "ui/ThkaPoller.h"
 #include "hw/impl/ThkaRs485Temp.h"
 #include <QDebug>
-#include <QtMath> // for qFuzzyCompare when caching manual setpoints
+#include <QtMath>
 #include <chrono>
 
 using Clock = std::chrono::steady_clock;
@@ -11,12 +11,14 @@ OvenBackend::OvenBackend(StateMachine* sm, QObject* parent)
   : QObject(parent), sm_(sm) {
     if (!sm_) qWarning() << "OvenBackend constructed with null StateMachine*.";
 
-    // Advertise the default manual-setpoint status so the UI has meaningful text before any connection happens.
     emit manualSetpointStatusChanged();
 
     tick_.setInterval(50);
     tick_.setTimerType(Qt::PreciseTimer);
-    connect(&tick_, &QTimer::timeout, this, &OvenBackend::onTick);
+    connect(&tick_, &QTimer::timeout, this, [this]() {
+        onTick();
+        updateAutoModeStatus();
+    });
     tick_.start();
 
     setStatus("Idle");
@@ -26,19 +28,16 @@ void OvenBackend::setThka(ThkaRs485Temp* thka) {
     thka_ = thka;
     if (!thka_) return;
 
-    // Let the user know the THKA interface is ready for manual writes now that the pointer is valid.
     setManualSetpointStatus("Connected to THKA controller – ready to send setpoints");
 
     poller_ = new ThkaPoller(thka_);
     poller_->moveToThread(&thkaThread_);
-
 
     connect(&thkaThread_, &QThread::finished, poller_, &QObject::deleteLater);
     connect(&thkaThread_, &QThread::started,  poller_, &ThkaPoller::start);
     connect(poller_, &ThkaPoller::polled,     this,    &OvenBackend::onThkaUpdate);
 
     thkaThread_.start();
-
 }
 
 void OvenBackend::onThkaUpdate(const QVariantList& temps) {
@@ -50,89 +49,234 @@ void OvenBackend::onThkaUpdate(const QVariantList& temps) {
 void OvenBackend::onTick() {
     if (sm_) sm_->tick(Clock::now());
 }
+
+// ============ MANUAL MODE COMMANDS ============
+
 void OvenBackend::sendManualSetpoint(double value) {
-    // Cache the user's selection
     setManualSetpoint(value);
 
-    // Verify THKA is connected
     if (!thka_) {
-        setManualSetpointStatus("❌ Cannot send - THKA controller not initialized");
-        qWarning() << "sendManualSetpoint called but thka_ is null!";
+        setManualSetpointStatus("❌ Cannot send - THKA not connected");
         return;
     }
 
-    // Send the write command
     qDebug() << "Sending setpoint" << value << "°C to CH" << manualSetpointChannel_;
     
     bool success = thka_->write_setpoint_celsius(manualSetpointChannel_, value);
     
     if (success) {
-        setManualSetpointStatus(QString("✓ Sent %1°C to CH%2 - Check THKA display")
+        setManualSetpointStatus(QString("✓ Sent %1°C to CH%2")
                                     .arg(value, 0, 'f', 1)
                                     .arg(manualSetpointChannel_));
-        qDebug() << "Setpoint write reported success";
     } else {
         setManualSetpointStatus(QString("❌ Write failed to CH%1")
                                     .arg(manualSetpointChannel_));
-        qWarning() << "Setpoint write reported failure";
     }
 }
 
-// your enterIdle/enterWarming/... methods and setStatus() stay as they are
 void OvenBackend::enterIdle() {
-    if (!sm_) return;                                       // safety: nothing to call if sm_ is null
-    sm_->command_enterIdle();                                   // call YOUR real API (from the code you posted)
-    setStatus("Idle");                                   // simple reflected status (optional cosmetic)
+    if (!sm_) return;
+    sm_->command_enterIdle();
+    setStatus("Idle");
 }
+
 void OvenBackend::enterWarming() {
-    if (!sm_) return;                                       // safety: nothing to call if sm_ is null
-    sm_->command_enterWarming();                                   // call YOUR real API (from the code you posted)
-    setStatus("Warming");                                   // simple reflected status (optional cosmetic)
+    if (!sm_) return;
+    sm_->command_enterWarming();
+    setStatus("Warming");
 }
+
 void OvenBackend::enterReady() {
-    if (!sm_) return;                                       // safety: nothing to call if sm_ is null
-    sm_->command_enterReady();                                   // call YOUR real API (from the code you posted)
-    setStatus("Ready");                                   // simple reflected status (optional cosmetic)
+    if (!sm_) return;
+    sm_->command_enterReady();
+    setStatus("Ready");
 }
+
 void OvenBackend::enterCuring() {
-    if (!sm_) return;                                       // safety: nothing to call if sm_ is null
-    sm_->command_enterCuring();                                   // call YOUR real API (from the code you posted)
-    setStatus("Curing");                                   // simple reflected status (optional cosmetic)       
+    if (!sm_) return;
+    sm_->command_enterCuring();
+    setStatus("Curing");
 }
+
 void OvenBackend::enterShutdown() {
-    if (!sm_) return;                                       // safety: nothing to call if sm_ is null
-    sm_->command_enterShutdown();                                   // call YOUR real API (from the code you posted)
-    setStatus("Shutdown");                                   // simple reflected status (optional cosmetic)
+    if (!sm_) return;
+    sm_->command_enterShutdown();
+    setStatus("Shutdown");
 }
+
 void OvenBackend::enterFault() {
-    if (!sm_) return;                                       // safety: nothing to call if sm_ is null
-    sm_->command_enterFault();                                   // call YOUR real API (from the code you posted)
-    setStatus("Fault");                                   // simple reflected status (optional cosmetic)
+    if (!sm_) return;
+    sm_->command_enterFault();
+    setStatus("Fault");
 }
 
+// ============ AUTO MODE COMMANDS ============
 
-// Internal helper to update the exported 'status' string and notify QML if it changed.
+void OvenBackend::startAutoMode(double targetTemp) {
+    if (!sm_) {
+        qWarning() << "Cannot start auto mode - StateMachine null";
+        return;
+    }
+    
+    if (!thka_) {
+        qWarning() << "Cannot start auto mode - THKA not connected";
+        return;
+    }
+    
+    qDebug() << "Starting AUTO MODE with target:" << targetTemp << "°C";
+    
+    // Write target temperature to THKA CH1
+    thka_->write_setpoint_celsius(1, targetTemp);
+    
+    // Let StateMachine handle the control logic
+    sm_->command_startAutoMode(targetTemp);
+    
+    // Update local state
+    autoTargetTemp_ = targetTemp;
+    autoModeActive_ = true;
+    autoCureComplete_ = false;
+    
+    emit autoModeActiveChanged();
+    emit autoTargetTempChanged();
+    emit autoCureCompleteChanged();
+    
+    setAutoStatus("Starting...");
+    setStatus("Auto: Starting");
+}
+
+void OvenBackend::cancelAutoMode() {
+    if (!sm_) return;
+    
+    qDebug() << "Cancelling AUTO MODE";
+    
+    sm_->command_cancelAutoMode();
+    
+    autoModeActive_ = false;
+    autoCureComplete_ = false;
+    
+    emit autoModeActiveChanged();
+    emit autoCureCompleteChanged();
+    
+    setAutoStatus("Cancelled");
+    setStatus("Idle");
+    setAutoCureTimeLeft(0);
+}
+
+void OvenBackend::acknowledgeAutoCureComplete() {
+    qDebug() << "User acknowledged cure complete";
+    
+    autoCureComplete_ = false;
+    emit autoCureCompleteChanged();
+    
+    cancelAutoMode();
+}
+
+void OvenBackend::updateAutoModeStatus() {
+    if (!sm_) return;
+    
+    // Check if StateMachine is in auto mode
+    bool smInAutoMode = sm_->is_auto_mode();
+    
+    if (autoModeActive_ != smInAutoMode) {
+        autoModeActive_ = smInAutoMode;
+        emit autoModeActiveChanged();
+    }
+    
+    if (!smInAutoMode) return;
+    
+    // Get current state and temperatures
+    State state = sm_->state();
+    double airTemp = thkaTemps_.isEmpty() ? 0.0 : thkaTemps_[0].toDouble();
+    double irTemp = (thkaTemps_.size() > 5) ? thkaTemps_[5].toDouble() : 0.0;
+    
+    // Update status based on state
+    switch(state) {
+        case State::Warming:
+            setAutoStatus(QString("Warming: %1°C / %2°C")
+                .arg(airTemp, 0, 'f', 1)
+                .arg(sm_->auto_target_temp(), 0, 'f', 1));
+            setStatus("Auto: Warming");
+            break;
+            
+        case State::Ready:
+            setAutoStatus(QString("Ready - waiting for part (IR: %1°C)")
+                .arg(irTemp, 0, 'f', 1));
+            setStatus("Auto: Ready");
+            break;
+            
+        case State::Curing:
+            if (sm_->auto_part_at_temp()) {
+                int timeLeft = sm_->seconds_left();
+                setAutoCureTimeLeft(timeLeft);
+                
+                int mins = timeLeft / 60;
+                int secs = timeLeft % 60;
+                
+                setAutoStatus(QString("Curing: %1:%2 remaining (Part: %3°C)")
+                    .arg(mins)
+                    .arg(secs, 2, 10, QChar('0'))
+                    .arg(irTemp, 0, 'f', 1));
+                setStatus("Auto: Curing");
+            } else {
+                setAutoStatus(QString("Heating part: %1°C / %2°C (±10°C)")
+                    .arg(irTemp, 0, 'f', 1)
+                    .arg(sm_->auto_target_temp(), 0, 'f', 1));
+                setStatus("Auto: Heating");
+                setAutoCureTimeLeft(0);
+            }
+            break;
+            
+        case State::Shutdown:
+            if (sm_->auto_cure_complete()) {
+                setAutoStatus("✓ Cure Complete!");
+                setStatus("Auto: Complete");
+                
+                if (!autoCureComplete_) {
+                    autoCureComplete_ = true;
+                    emit autoCureCompleteChanged();
+                }
+            }
+            break;
+            
+        default:
+            break;
+    }
+}
+
+// ============ SETTERS ============
+
 void OvenBackend::setStatus(const QString& s) {
-  if (s == status_) return;                               // no-op if identical (avoid spurious updates)
-  status_ = s;                                            // store new text
-  emit statusChanged();                                   // tell QML bindings to refresh
+    if (s == status_) return;
+    status_ = s;
+    emit statusChanged();
 }
 
 void OvenBackend::setManualSetpoint(double value) {
-    // Skip signal emission when the cached value already matches to avoid redundant UI updates.
-    if (qFuzzyCompare(manualSetpoint_, value))
-        return;
-    manualSetpoint_ = value;                               // Cache the user's latest selection
-    emit manualSetpointChanged();                          // Notify QML bindings
+    if (qFuzzyCompare(manualSetpoint_, value)) return;
+    manualSetpoint_ = value;
+    emit manualSetpointChanged();
 }
 
 void OvenBackend::setManualSetpointStatus(const QString& status) {
-    // Avoid unnecessary signals if the text has not changed.
-    if (manualSetpointStatus_ == status)
-        return;
-    manualSetpointStatus_ = status;                        // Remember the new status message
-    emit manualSetpointStatusChanged();                    // Allow QML to refresh its label
+    if (manualSetpointStatus_ == status) return;
+    manualSetpointStatus_ = status;
+    emit manualSetpointStatusChanged();
 }
 
+void OvenBackend::setAutoStatus(const QString& status) {
+    if (autoStatus_ == status) return;
+    autoStatus_ = status;
+    emit autoStatusChanged();
+}
 
+void OvenBackend::setAutoCureTimeLeft(int seconds) {
+    if (autoCureTimeLeft_ == seconds) return;
+    autoCureTimeLeft_ = seconds;
+    emit autoCureTimeLeftChanged();
+}
 
+void OvenBackend::setAutoCureComplete(bool complete) {
+    if (autoCureComplete_ == complete) return;
+    autoCureComplete_ = complete;
+    emit autoCureCompleteChanged();
+}

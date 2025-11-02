@@ -1,6 +1,6 @@
 #pragma once
 #include <chrono>
-#include <limits>            // std::numeric_limits for quiet_NaN
+#include <limits>
 #include "../hw/IHeater.h"
 #include "../hw/IFan.h"
 #include "../hw/ITempSensor.h"
@@ -9,88 +9,93 @@
 
 class StateMachine {
 public:
-  // Inject: AIR (thermocouple) and IR (part sensor); plus heater & fan
   StateMachine(Params p, ITempSensor& air_sensor, ITempSensor& part_sensor,
                IRelay& f2, IRelay& f, IRelay& greenL, IRelay& redL, IRelay& amberL,
                IRelay& buzzerL, IRelay& contactor);
 
-  // Called once per loop with a monotonic clock time
   void tick(std::chrono::steady_clock::time_point now);
 
-  // Operator/GUI commands
-  void command_start();        // Idle -> Warming
-  void command_stop();         // any  -> Shutdown
-  void command_clearFault();   // Fault -> Idle (if safe)
-
-  // Manual State Commands
-  void command_enterIdle(); 
+  // Manual mode commands
+  void command_start();
+  void command_stop();
+  void command_clearFault();
+  void command_enterIdle();
   void command_enterWarming();
-  void command_enterReady();   
+  void command_enterReady();
   void command_enterCuring();
   void command_enterShutdown();
-  void command_enterFault();   
+  void command_enterFault();
 
+  // Auto mode commands
+  void command_startAutoMode(double target_temp);
+  void command_cancelAutoMode();
 
-  // Inputs (wired later; keyboard in laptop tests)
+  // Inputs
   void setFault(bool f)       { fault_ = f; }
   void setDoorOpen(bool open) { door_open_ = open; }
 
-  // ---------- Status for UI ----------
+  // Status for UI
   State  state() const { return st_; }
-
-  // Raw readings
-  double air_c() const { return last_air_c_; }    // AIR (thermocouple)
-  double ir_c()  const { return last_part_c_; }   // IR raw (wall before detection; part after)
-
-  // Logical "part temperature" (only meaningful after detection)
+  OperatingMode mode() const { return mode_; }
+  
+  double air_c() const { return last_air_c_; }
+  double ir_c()  const { return last_part_c_; }
   double part_c() const {
     return part_detected_ ? last_part_c_ : std::numeric_limits<double>::quiet_NaN();
   }
 
   bool   part_detected() const { return part_detected_; }
   int    seconds_left()  const;
+  
+  // Auto mode status
+  bool   is_auto_mode() const { return mode_ == OperatingMode::Auto; }
+  double auto_target_temp() const { return auto_target_temp_; }
+  bool   auto_part_at_temp() const { return auto_part_at_temp_; }
+  bool   auto_cure_complete() const { return auto_cure_complete_; }
 
 private:
-  // State transitions and per-state updates
-  void enter(State s);   // one-time "on entry"
+  void enter(State s);
   void update_idle();
-  void update_warming();                                    // AIR control; fan HIGH
-  void update_ready(std::chrono::steady_clock::time_point now);   // wait for drop + target
-  void update_curing(std::chrono::steady_clock::time_point now);  // PART control; dwell
+  void update_warming();
+  void update_ready(std::chrono::steady_clock::time_point now);
+  void update_curing(std::chrono::steady_clock::time_point now);
   void update_shutdown();
-
-  // IR drop detector (tracks baseline while in Ready; latches detection on big drop)
   void update_part_detection();
+  
+  // Auto mode specific updates
+  void update_auto_warming();
+  void update_auto_ready(std::chrono::steady_clock::time_point now);
+  void update_auto_curing(std::chrono::steady_clock::time_point now);
 
-  // Config & hardware
   Params       P_;
   ITempSensor& air_;
   ITempSensor& part_;
-  IRelay&     fan2_;
-  IRelay&        fan_;
-
+  IRelay&      fan2_;
+  IRelay&      fan_;
   IRelay&      greenL_;
   IRelay&      redL_;
   IRelay&      amberL_;
   IRelay&      buzzerL_;
   IRelay&      contactor_;
 
-
-  // Runtime state & flags
   State st_{State::Idle};
+  OperatingMode mode_{OperatingMode::Manual};
   bool  fault_{false};
   bool  door_open_{false};
 
-  // Cached readings
   double last_air_c_{ std::numeric_limits<double>::quiet_NaN() };
   double last_part_c_{ std::numeric_limits<double>::quiet_NaN() };
 
-  // Curing dwell bookkeeping
   bool cure_timer_running_{false};
   std::chrono::steady_clock::time_point cure_ends_{};
 
-  // IR drop detection (EWMA baseline)
   bool   part_detected_{false};
   double part_baseline_c_{ std::numeric_limits<double>::quiet_NaN() };
-  double part_baseline_alpha_{0.02}; // slow baseline
+  double part_baseline_alpha_{0.02};
+  
+  // Auto mode state
+  double auto_target_temp_{200.0};
+  bool   auto_part_at_temp_{false};
+  bool   auto_cure_complete_{false};
+  std::chrono::steady_clock::time_point auto_cure_start_;
 };
