@@ -8,6 +8,7 @@
 #include "hw/ITempSensor.h"
 #include "hw/impl/GpioHeater.h"
 #include "hw/impl/GpioFan.h"
+#include "hw/impl/GpioRelay.h"
 #include "hw/impl/MockTemp.h"
 #include "hw/impl/ThkaRs485Temp.h"
 #include "ui/OvenBackend.h"
@@ -34,9 +35,13 @@ int main(int argc, char* argv[]) {
   constexpr unsigned GPIO_FAN    = 6;
   constexpr bool ACTIVE_HIGH     = false;
 
-  GpioHeater heater(CHIP, GPIO_HEATER, ACTIVE_HIGH);
-  GpioFan    fan   (CHIP, GPIO_FAN,    ACTIVE_HIGH);
-
+  GpioRelay fan2 (CHIP, GPIO_HEATER, ACTIVE_HIGH);
+  GpioRelay   fan   (CHIP, GPIO_FAN,    ACTIVE_HIGH);
+  GpioRelay greenL(CHIP, 13, false);
+  GpioRelay amberL(CHIP, 16, false);
+  GpioRelay redL  (CHIP, 19, false);
+  GpioRelay buzzerL(CHIP, 20, false);
+  GpioRelay contactor(CHIP, 26, false);
   // ---- State Machine Params ----
   Params P{};
   P.air_target_c       = 200.0;
@@ -50,7 +55,7 @@ int main(int argc, char* argv[]) {
   MockTemp air_sensor;   air_sensor.inject(25.0);
   MockTemp part_sensor;  part_sensor.inject(25.0);
 
-  StateMachine sm(P, air_sensor, part_sensor, heater, fan);
+  StateMachine sm(P, air_sensor, part_sensor, fan2, fan, greenL, redL, amberL, buzzerL, contactor);
 
   // ---- Backend ----
   OvenBackend backend(&sm);

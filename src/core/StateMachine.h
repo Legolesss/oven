@@ -4,13 +4,15 @@
 #include "../hw/IHeater.h"
 #include "../hw/IFan.h"
 #include "../hw/ITempSensor.h"
+#include "../hw/IRelay.h"
 #include "Events.h"
 
 class StateMachine {
 public:
   // Inject: AIR (thermocouple) and IR (part sensor); plus heater & fan
   StateMachine(Params p, ITempSensor& air_sensor, ITempSensor& part_sensor,
-               IHeater& h, IFan& f);
+               IRelay& f2, IRelay& f, IRelay& greenL, IRelay& redL, IRelay& amberL,
+               IRelay& buzzerL, IRelay& contactor);
 
   // Called once per loop with a monotonic clock time
   void tick(std::chrono::steady_clock::time_point now);
@@ -64,8 +66,15 @@ private:
   Params       P_;
   ITempSensor& air_;
   ITempSensor& part_;
-  IHeater&     heater_;
-  IFan&        fan_;
+  IRelay&     fan2_;
+  IRelay&        fan_;
+
+  IRelay&      greenL_;
+  IRelay&      redL_;
+  IRelay&      amberL_;
+  IRelay&      buzzerL_;
+  IRelay&      contactor_;
+
 
   // Runtime state & flags
   State st_{State::Idle};
