@@ -196,21 +196,22 @@ void StateMachine::update_warming(){
 }
 
 void StateMachine::update_ready(std::chrono::steady_clock::time_point now){
-  double pc = part_c();
-  bool part_hot = !std::isnan(pc) && pc >= P_.part_target_c;
 
-  if(!door_open_ && part_detected_ && part_hot){
+  if(part_detected_ ){
     enter(State::Curing);
-    cure_timer_running_ = true;
-    cure_ends_ = now + std::chrono::seconds(P_.dwell_seconds);
   }
 }
 
 void StateMachine::update_curing(std::chrono::steady_clock::time_point now){
-  if(last_part_c_ < P_.part_target_c - P_.part_hysteresis_c) fan2_.set(true);
-  if(last_part_c_ > P_.part_target_c + P_.part_hysteresis_c) fan2_.set(false);
-  if(door_open_) fan_.set(false);
-  if(!door_open_) fan_.set(true);
+
+  double pc = part_c();
+  bool part_hot = !std::isnan(pc) && pc >= P_.part_target_c;
+
+  if(part_hot){
+    cure_timer_running_ = true;
+    cure_ends_ = now + std::chrono::seconds(P_.dwell_seconds);
+  }
+
   
   if(cure_timer_running_ && now >= cure_ends_){
     enter(State::Idle);
@@ -225,11 +226,7 @@ void StateMachine::update_shutdown(){
 // Auto mode updates
 void StateMachine::update_auto_warming(){
   // Heat until air reaches target
-  if(last_air_c_ < P_.air_target_c - P_.air_hysteresis_c) fan2_.set(true);
-  if(last_air_c_ > P_.air_target_c + P_.air_hysteresis_c) fan2_.set(false);
-  if(door_open_) fan_.set(false);
-  if(!door_open_) fan_.set(true);
-  
+
   // Once target reached, go to Ready to wait for part
   if(last_air_c_ >= P_.air_target_c){
     enter(State::Ready);
