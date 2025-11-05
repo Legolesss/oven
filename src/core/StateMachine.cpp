@@ -22,8 +22,6 @@ void StateMachine::enter(State s){
       amberL_.set(false);
       buzzerL_.set(false);
       contactor_.set(false);
-      fan_.set(false);
-      fan2_.set(false);
       
       // Reset auto mode state when entering idle
       if (mode_ == OperatingMode::Auto) {
@@ -278,10 +276,6 @@ void StateMachine::update_auto_ready(std::chrono::steady_clock::time_point now){
 
 void StateMachine::update_auto_curing(std::chrono::steady_clock::time_point now){
   // Control temperature based on part sensor
-  if(last_part_c_ < P_.part_target_c - P_.part_hysteresis_c) fan2_.set(true);
-  if(last_part_c_ > P_.part_target_c + P_.part_hysteresis_c) fan2_.set(false);
-  if(door_open_) fan_.set(false);
-  if(!door_open_) fan_.set(true);
   
   // Check if part is within tolerance (±10°C)
   bool part_in_range = std::abs(last_part_c_ - P_.part_target_c) <= P_.auto_target_temp_tolerance_c;

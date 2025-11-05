@@ -15,8 +15,47 @@ void ThkaPoller::start() {
     timer_->start();
 }
 
+void ThkaPoller::queueWrite(int channel, double value) {
+    // Called from GUI thread - just queue the request
+    QMutexLocker lock(&writeMutex_);
+    writeQueue_.push({channel, value});
+    qDebug() << "[ThkaPoller] Queued write: CH" << channel << "=" << value << "°C";
+}
+
+void ThkaPoller::processWrites() {
+    // Process all queued writes (runs in worker thread)
+    QMutexLocker lock(&writeMutex_);
+    
+    while (!writeQueue_.empty()) {
+        ThkaWriteRequest req = writeQueue_.front();
+        writeQueue_.pop();
+        
+        // Unlock while doing the actual write (don't block GUI thread from queuing more)
+        lock.unlock();
+        
+        qDebug() << "[ThkaPoller] Processing write: CH" << req.channel << "=" << req.value << "°C";
+        
+        bool success = false;
+        try {
+            success = thka_->write_setpoint_celsius(req.channel, req.value);
+        } catch (const std::exception& e) {
+            qWarning() << "[ThkaPoller] Write failed:" << e.what();
+        }
+        
+        emit writeComplete(req.channel, success);
+        
+        // Re-lock for next iteration
+        lock.relock();
+    }
+}
+
 void ThkaPoller::doPoll() {
     if (!thka_) return;
+    
+    // First, process any pending writes
+    processWrites();
+    
+    // Then do the temperature read
     QVariantList out;
     try {
         const auto v = thka_->read_all_channels_celsius(); // blocking, worker thread

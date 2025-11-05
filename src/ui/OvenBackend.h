@@ -8,6 +8,7 @@
 
 class ThkaRs485Temp;
 class ThkaPoller;
+class ThkaTempAdapter;
 
 class OvenBackend : public QObject {
     Q_OBJECT
@@ -27,6 +28,7 @@ public:
     explicit OvenBackend(StateMachine* sm, QObject* parent = nullptr);
 
     void setThka(ThkaRs485Temp* thka);
+    void setSensorAdapters(ThkaTempAdapter* air, ThkaTempAdapter* part);
 
     // Manual mode commands
     Q_INVOKABLE void enterIdle();
@@ -69,6 +71,7 @@ signals:
 private slots:
     void onTick();
     void onThkaUpdate(const QVariantList& temps);
+    void onWriteComplete(int channel, bool success);
 
 private:
     void setStatus(const QString& s);
@@ -89,6 +92,10 @@ private:
 
     QThread     thkaThread_;
     ThkaPoller* poller_ = nullptr;
+    
+    // Sensor adapters (not owned)
+    ThkaTempAdapter* airAdapter_ = nullptr;
+    ThkaTempAdapter* partAdapter_ = nullptr;
 
     QVariantList thkaTemps_;
     double manualSetpoint_ = 25.0;

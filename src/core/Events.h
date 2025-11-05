@@ -12,7 +12,7 @@ struct Params {
   double part_target_c     = 190.0;
   double part_hysteresis_c = 3.0;
 
-  int    dwell_seconds     = 5 * 60;
+  int    dwell_seconds     = 6 * 60;
 
   // For detecting part insertion: IR must DROP by at least this much
   double ir_drop_delta_c   = 40.0;   // e.g. 40°C drop

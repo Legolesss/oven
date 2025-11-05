@@ -1,6 +1,7 @@
 #include "OvenBackend.h"
 #include "ui/ThkaPoller.h"
 #include "hw/impl/ThkaRs485Temp.h"
+#include "hw/impl/ThkaTempAdapter.h"
 #include <QDebug>
 #include <QtMath>
 #include <chrono>
@@ -36,14 +37,43 @@ void OvenBackend::setThka(ThkaRs485Temp* thka) {
     connect(&thkaThread_, &QThread::finished, poller_, &QObject::deleteLater);
     connect(&thkaThread_, &QThread::started,  poller_, &ThkaPoller::start);
     connect(poller_, &ThkaPoller::polled,     this,    &OvenBackend::onThkaUpdate);
+    
+    // Connect to write completion signal
+    connect(poller_, &ThkaPoller::writeComplete, this, &OvenBackend::onWriteComplete);
 
     thkaThread_.start();
 }
 
+void OvenBackend::setSensorAdapters(ThkaTempAdapter* air, ThkaTempAdapter* part) {
+    airAdapter_ = air;
+    partAdapter_ = part;
+}
+
 void OvenBackend::onThkaUpdate(const QVariantList& temps) {
+    // Update the sensor adapters with fresh data from THKA
+    if (airAdapter_ && temps.size() > 0) {
+        airAdapter_->update_cache(temps[0].toDouble());
+    }
+    if (partAdapter_ && temps.size() > 5) {
+        partAdapter_->update_cache(temps[5].toDouble());
+    }
+    
+    // Update GUI display
     if (temps == thkaTemps_) return;
     thkaTemps_ = temps;
     emit thkaTempsChanged();
+}
+
+void OvenBackend::onWriteComplete(int channel, bool success) {
+    // This runs in GUI thread after write completes in background
+    if (success) {
+        setManualSetpointStatus(QString("✓ Sent %1°C to CH%2")
+                                    .arg(manualSetpoint_, 0, 'f', 1)
+                                    .arg(channel));
+    } else {
+        setManualSetpointStatus(QString("❌ Write failed to CH%1")
+                                    .arg(channel));
+    }
 }
 
 void OvenBackend::onTick() {
@@ -55,23 +85,20 @@ void OvenBackend::onTick() {
 void OvenBackend::sendManualSetpoint(double value) {
     setManualSetpoint(value);
 
-    if (!thka_) {
+    if (!thka_ || !poller_) {
         setManualSetpointStatus("❌ Cannot send - THKA not connected");
         return;
     }
 
-    qDebug() << "Sending setpoint" << value << "°C to CH" << manualSetpointChannel_;
+    // Queue the write in the background thread (non-blocking!)
+    setManualSetpointStatus(QString("⏳ Sending %1°C to CH%2...")
+                                .arg(value, 0, 'f', 1)
+                                .arg(manualSetpointChannel_));
     
-    bool success = thka_->write_setpoint_celsius(manualSetpointChannel_, value);
-    
-    if (success) {
-        setManualSetpointStatus(QString("✓ Sent %1°C to CH%2")
-                                    .arg(value, 0, 'f', 1)
-                                    .arg(manualSetpointChannel_));
-    } else {
-        setManualSetpointStatus(QString("❌ Write failed to CH%1")
-                                    .arg(manualSetpointChannel_));
-    }
+    // This returns immediately - write happens in background
+    QMetaObject::invokeMethod(poller_, "queueWrite", Qt::QueuedConnection,
+                              Q_ARG(int, manualSetpointChannel_),
+                              Q_ARG(double, value));
 }
 
 void OvenBackend::enterIdle() {
@@ -118,16 +145,16 @@ void OvenBackend::startAutoMode(double targetTemp) {
         return;
     }
     
-    if (!thka_) {
+    if (!thka_ || !poller_) {
         qWarning() << "Cannot start auto mode - THKA not connected";
         return;
     }
     
-    qDebug() << "Starting AUTO MODE with target:" << targetTemp << "°C";
-    
-    // Write target temperature to all THKA channels
+    // Queue writes to all THKA channels (non-blocking!)
     for (int ch = 1; ch <= 6; ++ch) {
-        thka_->write_setpoint_celsius(ch, targetTemp);
+        QMetaObject::invokeMethod(poller_, "queueWrite", Qt::QueuedConnection,
+                                  Q_ARG(int, ch),
+                                  Q_ARG(double, targetTemp));
     }
     
     // Let StateMachine handle the control logic
@@ -149,8 +176,6 @@ void OvenBackend::startAutoMode(double targetTemp) {
 void OvenBackend::cancelAutoMode() {
     if (!sm_) return;
     
-    qDebug() << "Cancelling AUTO MODE";
-    
     sm_->command_cancelAutoMode();
     
     autoModeActive_ = false;
@@ -165,8 +190,6 @@ void OvenBackend::cancelAutoMode() {
 }
 
 void OvenBackend::acknowledgeAutoCureComplete() {
-    qDebug() << "User acknowledged cure complete";
-    
     // Tell StateMachine to exit AutoCureComplete state
     if (sm_) {
         sm_->command_acknowledgeAutoCureComplete();
