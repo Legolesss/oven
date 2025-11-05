@@ -125,8 +125,10 @@ void OvenBackend::startAutoMode(double targetTemp) {
     
     qDebug() << "Starting AUTO MODE with target:" << targetTemp << "°C";
     
-    // Write target temperature to THKA CH1
-    thka_->write_setpoint_celsius(1, targetTemp);
+    // Write target temperature to all THKA channels
+    for (int ch = 1; ch <= 6; ++ch) {
+        thka_->write_setpoint_celsius(ch, targetTemp);
+    }
     
     // Let StateMachine handle the control logic
     sm_->command_startAutoMode(targetTemp);
@@ -165,10 +167,17 @@ void OvenBackend::cancelAutoMode() {
 void OvenBackend::acknowledgeAutoCureComplete() {
     qDebug() << "User acknowledged cure complete";
     
-    autoCureComplete_ = false;
-    emit autoCureCompleteChanged();
+    // Tell StateMachine to exit AutoCureComplete state
+    if (sm_) {
+        sm_->command_acknowledgeAutoCureComplete();
+    }
     
-    cancelAutoMode();
+    // Reset UI state
+    autoCureComplete_ = false;
+    autoModeActive_ = false;
+    
+    emit autoCureCompleteChanged();
+    emit autoModeActiveChanged();
 }
 
 void OvenBackend::updateAutoModeStatus() {
@@ -226,16 +235,19 @@ void OvenBackend::updateAutoModeStatus() {
             }
             break;
             
-        case State::Shutdown:
-            if (sm_->auto_cure_complete()) {
-                setAutoStatus("✓ Cure Complete!");
-                setStatus("Auto: Complete");
-                
-                if (!autoCureComplete_) {
-                    autoCureComplete_ = true;
-                    emit autoCureCompleteChanged();
-                }
+        case State::AutoCureComplete:
+            setAutoStatus("✓ Cure Complete! Click OK to continue");
+            setStatus("Auto: Complete");
+            
+            // Set flag for UI popup
+            if (!autoCureComplete_) {
+                autoCureComplete_ = true;
+                emit autoCureCompleteChanged();
             }
+            break;
+            
+        case State::Shutdown:
+            // Shouldn't happen in auto mode anymore
             break;
             
         default:

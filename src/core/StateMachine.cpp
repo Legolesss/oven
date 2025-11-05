@@ -22,6 +22,8 @@ void StateMachine::enter(State s){
       amberL_.set(false);
       buzzerL_.set(false);
       contactor_.set(false);
+      fan_.set(false);
+      fan2_.set(false);
       
       // Reset auto mode state when entering idle
       if (mode_ == OperatingMode::Auto) {
@@ -32,6 +34,7 @@ void StateMachine::enter(State s){
       
     case State::Warming:
       fan_.set(true);
+      fan2_.set(true);
       contactor_.set(true);
       amberL_.set(true);
       greenL_.set(false);
@@ -42,6 +45,7 @@ void StateMachine::enter(State s){
     case State::Ready:
       contactor_.set(true);  
       fan_.set(true);
+      fan2_.set(true);
       part_detected_ = false;
       part_baseline_c_ = last_part_c_;
       
@@ -84,6 +88,23 @@ void StateMachine::enter(State s){
       amberL_.set(false);
       greenL_.set(false);
       buzzerL_.set(true);
+      break;
+      
+    case State::AutoCureComplete:
+      // Turn everything off except fans (for cooling)
+      contactor_.set(false);
+      fan2_.set(true);
+      fan_.set(true);
+      cure_timer_running_ = false;
+      
+      // Only green light on - stack light will flash automatically
+      greenL_.set(true);
+      redL_.set(false);
+      amberL_.set(false);
+      buzzerL_.set(true);  
+      
+      // Mark cure as complete for UI
+      auto_cure_complete_ = true;
       break;
   }
 }
@@ -131,6 +152,14 @@ void StateMachine::command_cancelAutoMode() {
   enter(State::Idle);
 }
 
+void StateMachine::command_acknowledgeAutoCureComplete() {
+  // User clicked OK on the dialog
+  if (st_ == State::AutoCureComplete) {
+    auto_cure_complete_ = false;
+    enter(State::Idle);
+  }
+}
+
 int StateMachine::seconds_left() const {
   if(!cure_timer_running_) return 0;
   auto now  = std::chrono::steady_clock::now();
@@ -152,21 +181,23 @@ void StateMachine::tick(std::chrono::steady_clock::time_point now){
   // Route to auto or manual state handlers
   if (mode_ == OperatingMode::Auto) {
     switch(st_){
-      case State::Idle:     update_idle();                 break;
-      case State::Warming:  update_auto_warming();         break;
-      case State::Ready:    update_auto_ready(now);        break;
-      case State::Curing:   update_auto_curing(now);       break;
-      case State::Shutdown: update_shutdown();             break;
-      case State::Fault:    /* wait for clear */           break;
+      case State::Idle:            update_idle();                      break;
+      case State::Warming:         update_auto_warming();              break;
+      case State::Ready:           update_auto_ready(now);             break;
+      case State::Curing:          update_auto_curing(now);            break;
+      case State::Shutdown:        update_shutdown();                  break;
+      case State::Fault:           /* wait for clear */                break;
+      case State::AutoCureComplete: update_auto_cure_complete(now);    break;
     }
   } else {
     switch(st_){
-      case State::Idle:     update_idle();             break;
-      case State::Warming:  update_warming();          break;
-      case State::Ready:    update_ready(now);         break;
-      case State::Curing:   update_curing(now);        break;
-      case State::Shutdown: update_shutdown();         break;
-      case State::Fault:    /* wait for clear */       break;
+      case State::Idle:            update_idle();                      break;
+      case State::Warming:         update_warming();                   break;
+      case State::Ready:           update_ready(now);                  break;
+      case State::Curing:          update_curing(now);                 break;
+      case State::Shutdown:        update_shutdown();                  break;
+      case State::Fault:           /* wait for clear */                break;
+      case State::AutoCureComplete: /* shouldn't happen in manual */   break;
     }
   }
 }
@@ -266,8 +297,8 @@ void StateMachine::update_auto_curing(std::chrono::steady_clock::time_point now)
     // Check if cure time is complete
     if(now >= cure_ends_){
       cure_timer_running_ = false;
-      auto_cure_complete_ = true;
-      enter(State::Shutdown);
+      // Instead of Shutdown, go to AutoCureComplete
+      enter(State::AutoCureComplete);
     }
   } else {
     // Part fell out of range, reset timer
@@ -276,6 +307,15 @@ void StateMachine::update_auto_curing(std::chrono::steady_clock::time_point now)
       auto_part_at_temp_ = false;
     }
   }
+}
+
+void StateMachine::update_auto_cure_complete(std::chrono::steady_clock::time_point now){
+  // Keep fans running for cooling
+  fan_.set(true);
+  fan2_.set(true);
+  
+  // Green light stays on - stack light handles flashing automatically
+  // Stay in this state until user acknowledges (calls command_acknowledgeAutoCureComplete)
 }
 
 void StateMachine::update_part_detection(){

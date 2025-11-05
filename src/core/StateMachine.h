@@ -29,6 +29,7 @@ public:
   // Auto mode commands
   void command_startAutoMode(double target_temp);
   void command_cancelAutoMode();
+  void command_acknowledgeAutoCureComplete();  // NEW: User clicks OK
 
   // Inputs
   void setFault(bool f)       { fault_ = f; }
@@ -61,6 +62,7 @@ private:
   void update_curing(std::chrono::steady_clock::time_point now);
   void update_shutdown();
   void update_part_detection();
+  void update_auto_cure_complete(std::chrono::steady_clock::time_point now);  // NEW
   
   // Auto mode specific updates
   void update_auto_warming();

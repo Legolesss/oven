@@ -1,7 +1,7 @@
 #pragma once
 #include <chrono>
 
-enum class State { Idle, Warming, Ready, Curing, Shutdown, Fault };
+enum class State { Idle, Warming, Ready, Curing, Shutdown, Fault, AutoCureComplete };
 
 enum class OperatingMode { Manual, Auto };
 
