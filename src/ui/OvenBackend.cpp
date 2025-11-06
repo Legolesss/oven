@@ -58,10 +58,21 @@ void OvenBackend::onThkaUpdate(const QVariantList& temps) {
         partAdapter_->update_cache(temps[5].toDouble());
     }
     
+    // Log data if in auto mode
+    if (sm_ && sm_->is_auto_mode() && temps.size() >= 6) {
+        std::vector<double> temp_vec;
+        temp_vec.reserve(temps.size());
+        for (const auto& t : temps) {
+            temp_vec.push_back(t.toDouble());
+        }
+        sm_->logCurrentState(temp_vec);
+    }
+    
     // Update GUI display
-    if (temps == thkaTemps_) return;
-    thkaTemps_ = temps;
-    emit thkaTempsChanged();
+    if (temps != thkaTemps_) {
+        thkaTemps_ = temps;
+        emit thkaTempsChanged();
+    }
 }
 
 void OvenBackend::onWriteComplete(int channel, bool success) {

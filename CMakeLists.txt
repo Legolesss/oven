@@ -36,6 +36,7 @@ add_executable(oven ${OVEN_SOURCES})
 # Headers in your repo
 target_include_directories(oven PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/data
   ${GPIOD_INCLUDE_DIRS}
   ${LIBMODBUS_INCLUDE_DIRS}
 )
@@ -46,6 +47,7 @@ target_link_libraries(oven PRIVATE
   Qt6::Qml
   ${GPIOD_LIBRARIES}
   ${LIBMODBUS_LIBRARIES}
+  stdc++fs  # For std::filesystem support
 )
 
 # Helpful warnings
@@ -58,4 +60,3 @@ qt_add_qml_module(oven
   QML_FILES
     qml/Main.qml
 )
-
